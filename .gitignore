@@ -3,3 +3,13 @@
 
 # Ada Library Information
 *.ali
+
+# Node and TypeScript artifacts
+node_modules/
+dist/
+*.log
+.env
+.env.*
+
+# macOS
+.DS_Store
