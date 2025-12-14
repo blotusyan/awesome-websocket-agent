@@ -163,3 +163,20 @@ A minimal full-stack demo that streams Anthropic foundation model responses from
 - **Network errors from the frontend** – Ensure the backend is running on port 4000 (or update `VITE_API_BASE_URL`).
 - **Empty streaming response** – Check backend logs; if the server falls back to non-streaming, make sure `ConverseStream` is available in the region/model you selected.
 - **`fetch` body missing** – Some legacy browsers do not expose streaming bodies; use a modern Chromium- or Firefox-based browser.
+
+## Streaming Stack & Terminology
+
+- **Server-Sent Events (SSE)** – HTTP-based streaming used between the backend and browser. The Express route writes `text/event-stream` responses so the React app can append tokens immediately. (Setting Content-Type: text/event-stream tells the client this HTTP response is a Server-Sent Events stream. Browsers treat it specially: they keep the connection open, don’t buffer the body, and expect lines formatted as event:/data: chunks. Without that header, the browser would treat the response as a normal text file and wouldn’t expose the streaming chunks to EventSource/fetch readers.)
+- **ConverseStream / Converse** – AWS Bedrock runtime APIs for Anthropic models. `ConverseStream` emits incremental `contentBlockDelta` events; the backend falls back to `Converse` when streaming is not available.
+- **Bedrock Runtime Client (AWS SDK v3)** – TypeScript client (`@aws-sdk/client-bedrock-runtime`) that establishes the streaming connection and parses response events.
+- **ReadableStream Fetch API** – Browser API used on the frontend (`response.body.getReader()`) to consume SSE chunks as soon as they arrive.
+- **Vite + React 18** – Frontend stack that consumes the SSE stream with the Fetch API (`ReadableStream`), updating UI state token-by-token.
+- **Express + TypeScript** – Backend HTTP server that exposes `/api/chat`, configures CORS, and proxies prompts to Bedrock.
+
+
+## SUMMARY
+- Bedrock runtime must emit tokens incrementally. We call ConverseStream, so AWS sends contentBlockDelta events rather than a single blob.
+
+- Backend (Express) forwards those tokens over HTTP by setting Content-Type: text/event-stream, keeping the socket open, and writing SSE frames (data: {"token": ...} + event: done).
+
+- Frontend client uses the Fetch API’s ReadableStream (response.body.getReader()) to read chunks as they arrive and update the UI immediately.

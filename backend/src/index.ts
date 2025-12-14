@@ -1,32 +1,25 @@
 import cors from "cors";
-import dotenv from "dotenv";
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import { streamBedrockResponse } from "./bedrockClient.js";
-
-dotenv.config();
+import { appConfig } from "./config.js";
+import { prepareSseResponse } from "./httpUtils.js";
 
 const app = express();
-const port = Number(process.env.PORT || 4000);
-const corsOrigin = process.env.CORS_ORIGIN || "*";
-const allowedOrigins =
-  corsOrigin === "*"
-    ? undefined
-    : corsOrigin
-        .split(",")
-        .map((origin) => origin.trim())
-        .filter(Boolean);
+const {
+  server: { port, corsOrigins, allowAllOrigins }
+} = appConfig;
 
 app.use(
   cors({
-    origin: allowedOrigins ?? true,
+    origin: allowAllOrigins ? true : corsOrigins,
     credentials: false
   })
 );
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", modelId: process.env.BEDROCK_MODEL_ID || "not-set" });
+  res.json({ status: "ok", modelId: appConfig.bedrock.modelId });
 });
 
 app.post("/api/chat", async (req: Request, res: Response) => {
@@ -37,43 +30,18 @@ app.post("/api/chat", async (req: Request, res: Response) => {
   }
 
   console.info(`[api] Received prompt of length ${prompt.length} characters.`);
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  (res as Response & { flushHeaders?: () => void }).flushHeaders?.();
-
-  let clientDisconnected = false;
-  let tokensSent = 0;
-  req.on("aborted", () => {
-    clientDisconnected = true;
-    console.warn("[api] Request aborted by the client before completion.");
-  });
-  req.on("error", (err) => {
-    console.error("[api] Request stream error:", err);
-  });
-  res.on("error", (err) => {
-    console.error("[api] Response stream error:", err);
-  });
-  res.on("finish", () => {
-    console.info(`[api] Response finished after sending ${tokensSent} chunks.`);
-  });
-  res.on("close", () => {
-    if (!clientDisconnected) {
-      console.warn("[api] Response 'close' fired; marking client disconnected.");
-      clientDisconnected = true;
-    }
-  });
+  const sseContext = prepareSseResponse(req, res);
 
   try {
     for await (const token of streamBedrockResponse(prompt)) {
-      if (clientDisconnected) {
+      if (sseContext.clientDisconnected) {
         break;
       }
       res.write(`data: ${JSON.stringify({ token })}\n\n`);
-      tokensSent += 1;
+      sseContext.tokensSent += 1;
     }
-    if (!clientDisconnected) {
-      console.info(`[api] Completed stream with ${tokensSent} chunks sent.`);
+    if (!sseContext.clientDisconnected) {
+      console.info(`[api] Completed stream with ${sseContext.tokensSent} chunks sent.`);
       res.write("event: done\ndata: {}\n\n");
     }
   } catch (error) {
@@ -81,7 +49,7 @@ app.post("/api/chat", async (req: Request, res: Response) => {
     console.error("[api] Error while streaming response:", error);
     res.write(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
   } finally {
-    if (!clientDisconnected) {
+    if (!sseContext.clientDisconnected) {
       res.end();
     }
   }
