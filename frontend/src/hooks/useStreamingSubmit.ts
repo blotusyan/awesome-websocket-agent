@@ -75,6 +75,10 @@ export const useStreamingSubmit = (initialResponse: string): UseStreamingSubmitR
       abortControllerRef.current = controller;
 
       try {
+        /**
+         * This function sends the prompt to the backend API and processes the streaming response with stream reader.
+         * handleStreamEvent is called for each chunk of data received from the stream in order to update the response state.
+         */
         await startStreamingChat(prompt, controller.signal, handleStreamEvent);
       } catch (err) {
         if ((err as DOMException)?.name === "AbortError") {

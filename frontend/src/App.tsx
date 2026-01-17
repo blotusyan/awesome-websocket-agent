@@ -19,6 +19,7 @@ const App = () => {
         <p className="subtitle">
           Send a message, and the backend will relay it to AWS Bedrock and stream the Anthropic foundation model response token by token.
         </p>
+        {/** handleSubmit handler trigger -> call backend -> stream reader read stream-data -> change 'response' which gets render in later*/}
         <form onSubmit={handleSubmit}>
           <textarea
             value={prompt}
